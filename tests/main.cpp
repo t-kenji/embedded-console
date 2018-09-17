@@ -8,7 +8,9 @@
  *  This code is licensed under the MIT License.
  */
 #include <cstdio>
+#include <cstdlib>
 #include <unistd.h>
+#include <termios.h>
 
 #include "econ.h"
 
@@ -39,6 +41,13 @@ static int aaa(int argc, char **argv)
     return -1;
 }
 
+static struct termios saved_term;
+static int cmd_exit(int argc, char **argv)
+{
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved_term);
+    exit(0);
+}
+
 static struct econ_command sub_cmds[] = {
     ECON_COMMAND("dummy", dummy, "dummy help", NULL),
     ECON_END_OF_COMMAND()
@@ -49,6 +58,7 @@ static struct econ_command test_cmds[] = {
     ECON_COMMAND("dummmmmmmmmmmmmmmmmmmmmmmy", dummy, "help message", dummy_usage),
     ECON_SUBCOMMAND("sub", sub_cmds, "sub-commands help"),
     ECON_COMMAND("aaa", aaa, "aaa help", NULL),
+    ECON_COMMAND("exit", cmd_exit, "exit console", NULL),
     ECON_END_OF_COMMAND()
 };
 
@@ -64,12 +74,18 @@ static struct econ_command test_cmds[] = {
  */
 int main(int argc, char **argv)
 {
-    if (!isatty(STDOUT_FILENO)) {
-        setvbuf(stdout, NULL, _IONBF, 0);
-    }
-    if (!isatty(STDERR_FILENO)) {
-        setvbuf(stderr, NULL, _IONBF, 0);
-    }
+    struct termios new_term;
+
+    tcgetattr(STDIN_FILENO, &saved_term);
+    new_term = saved_term;
+    new_term.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+    new_term.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    new_term.c_cflag &= ~(CSIZE | PARENB);
+    new_term.c_cflag |= CS8;
+    new_term.c_oflag &= ~(OPOST);
+    new_term.c_cc[VMIN] = 1;
+    new_term.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term);
 
     do {
         char *cmd_args[24] = {0};

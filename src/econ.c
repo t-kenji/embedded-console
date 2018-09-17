@@ -64,9 +64,10 @@ static int parse_argument(char *buf, char **argv, size_t length)
  */
 int econ_prompt(const char *prompt, char **argv, size_t length)
 {
-    static char buf[BUFSIZ];
+    char buf[BUFSIZ] = {0};
 
-    int count = 0;
+    int count = 0,
+        cursor = 0;
 
     prompt = (prompt) ?: "econ>";
 
@@ -79,9 +80,82 @@ int econ_prompt(const char *prompt, char **argv, size_t length)
             }
             if (c == '\n') {
                 buf[count] = '\0';
+                putchar('\r');
+                putchar('\n');
                 break;
             } else {
-                buf[count++] = c;
+                if ((0x20 <= c) && (c < 0x7F)) {
+                    if (cursor == count) {
+                        putchar(c);
+                    } else {
+                        for (int i = count; i > cursor; --i) {
+                            buf[i] = buf[i - 1];
+                        }
+                    }
+                    buf[cursor++] = c;
+                    ++count;
+                    if (cursor != count) {
+                        printf("\r%s %s\033[%dD", prompt, buf, count - cursor);
+                    }
+                } else {
+                    switch (c) {
+                    case 033:
+                        getchar(); /* skip '[' */
+                        c = getchar();
+                        switch (c) {
+                        case '3': /* delete */
+                            getchar(); /* skip '~' */
+                            if (cursor < count) {
+                                for (int i = cursor; i < count; ++i) {
+                                    buf[i] = buf[i + 1];
+                                }
+                                --count;
+                                printf("\r%s %s\033[K\033[%dD", prompt, buf, count - cursor);
+                            }
+                            break;
+                        case 'A': /* up */
+                            break;
+                        case 'B': /* down */
+                            break;
+                        case 'C': /* right */
+                            if (++cursor > count) {
+                                cursor = count;
+                            } else {
+                                printf("\033[1C");
+                            }
+                            break;
+                        case 'D': /* left */
+                            if (--cursor <= 0) {
+                                cursor = 0;
+                            } else {
+                                printf("\033[1D");
+                            }
+                            break;
+                        default:
+                            break;
+                        }
+                        break;
+                    case 127: /* backspace */
+                        if (cursor == count) {
+                            if (count > 0) {
+                                --count;
+                                --cursor;
+                                buf[cursor] = '\0';
+                                printf("\033[1D\033[K");
+                            }
+                        } else {
+                            --cursor;
+                            for (int i = cursor; i < count; ++i) {
+                                buf[i] = buf[i + 1];
+                            }
+                            --count;
+                            printf("\r%s %s\033[K\033[%dD", prompt, buf, count - cursor);
+                        }
+                        break;
+                    default:
+                        break;
+                    }
+                }
             }
         }
     } while (true);
@@ -123,13 +197,13 @@ int econ_invoke(int argc, char **argv, struct econ_command *cmds)
     }
 
     if (argc > 0) {
-        printf("%s: command not found\n", argv[0]);
+        printf("%s: command not found\r\n", argv[0]);
     }
-    printf("\navailable list.\n");
+    printf("\navailable list.\r\n");
     for (int i = 0; cmds[i].command != NULL; ++i) {
         struct econ_command *cmd = &cmds[i];
 
-        printf("* %-*s: %s\n", col_length + 1, cmd->command, cmd->help);
+        printf("* %-*s: %s\r\n", col_length + 1, cmd->command, cmd->help);
     }
 
     errno = ENOENT;

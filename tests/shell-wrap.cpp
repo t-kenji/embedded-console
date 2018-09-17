@@ -33,59 +33,76 @@ static void usage(const char *name)
 
 static int invoke(int argc, char **argv)
 {
-    enum {
-        PIPE_READ,
-        PIPE_WRITE,
-        PIPE_LENGTH
-    };
+    struct termios old_term;
+    struct winsize old_size;
 
-    int pipe_in[PIPE_LENGTH],
-        pipe_out[PIPE_LENGTH],
-        pipe_err[PIPE_LENGTH];
+    tcgetattr(STDIN_FILENO, &old_term);
+    ioctl(STDIN_FILENO, TIOCGWINSZ, (char *)&old_size);
 
-    if ((pipe(pipe_in) != 0) || (pipe(pipe_out) != 0) || (pipe(pipe_err) != 0)) {
-        perror("pipe2");
-        return 1;
-    }
+    int pty_master = posix_openpt(O_RDWR);
+    grantpt(pty_master);
+    unlockpt(pty_master);
+    char *pts_name = ptsname(pty_master);
+    printf("using pts: %s\n", pts_name);
 
     pid_t cpid = fork();
     if (cpid < 0) {
-        close(pipe_in[PIPE_READ]);
-        close(pipe_in[PIPE_WRITE]);
-        close(pipe_out[PIPE_READ]);
-        close(pipe_out[PIPE_WRITE]);
-        close(pipe_err[PIPE_READ]);
-        close(pipe_err[PIPE_WRITE]);
+        close(pty_master);
         perror("fork");
         return 1;
     } else if (cpid == 0) {
-        if (dup2(pipe_in[PIPE_READ], STDIN_FILENO) < 0) {
+        setsid();
+        close(pty_master);
+
+        int pty_slave = open(pts_name, O_RDWR);
+#if 0
+        struct termios new_term = old_term;
+
+        new_term.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        new_term.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+        new_term.c_cflag &= ~(CSIZE | PARENB);
+        new_term.c_cflag |= CS8;
+        new_term.c_oflag &= ~(OPOST);
+        new_term.c_cc[VMIN] = 1;
+        new_term.c_cc[VTIME] = 0;
+        tcsetattr(pty_slave, TCSAFLUSH, &new_term);
+#else
+        tcsetattr(pty_slave, TCSAFLUSH, &old_term);
+#endif
+        ioctl(pty_slave, TIOCSWINSZ, &old_size);
+
+        if (dup2(pty_slave, STDIN_FILENO) < 0) {
             perror("dup2");
             exit(2);
         }
-        close(pipe_in[PIPE_WRITE]);
-        if (dup2(pipe_out[PIPE_WRITE], STDOUT_FILENO) < 0) {
+        if (dup2(pty_slave, STDOUT_FILENO) < 0) {
             perror("dup2");
             exit(2);
         }
-        close(pipe_out[PIPE_READ]);
-        if (dup2(pipe_err[PIPE_WRITE], STDERR_FILENO) < 0) {
+        if (dup2(pty_slave, STDERR_FILENO) < 0) {
             perror("dup2");
             exit(2);
         }
-        close(pipe_err[PIPE_READ]);
+        close(pty_slave);
 
         execvp(argv[0], argv);
         perror("execvp");
         exit(2);
     } else {
-        close(pipe_in[PIPE_READ]);
-        close(pipe_out[PIPE_WRITE]);
-        close(pipe_err[PIPE_WRITE]);
 
         do {
             int epfd;
             struct epoll_event ev;
+            struct termios new_term = old_term;
+
+            new_term.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+            new_term.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+            new_term.c_cflag &= ~(CSIZE | PARENB);
+            new_term.c_cflag |= CS8;
+            new_term.c_oflag &= ~(OPOST);
+            new_term.c_cc[VMIN] = 1;
+            new_term.c_cc[VTIME] = 0;
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term);
 
             epfd = epoll_create1(0);
             if (epfd < 0) {
@@ -98,13 +115,8 @@ static int invoke(int argc, char **argv)
                 perror("epoll_ctl");
                 break;
             }
-            ev.data.fd = pipe_out[PIPE_READ];
-            if (epoll_ctl(epfd, EPOLL_CTL_ADD, pipe_out[PIPE_READ], &ev) != 0) {
-                perror("epoll_ctl");
-                break;
-            }
-            ev.data.fd = pipe_err[PIPE_READ];
-            if (epoll_ctl(epfd, EPOLL_CTL_ADD, pipe_err[PIPE_READ], &ev) != 0) {
+            ev.data.fd = pty_master;
+            if (epoll_ctl(epfd, EPOLL_CTL_ADD, pty_master, &ev) != 0) {
                 perror("epoll_ctl");
                 break;
             }
@@ -128,25 +140,16 @@ static int invoke(int argc, char **argv)
                         if (read_len < 0) {
                             perror("read");
                         }
-                        written_len = write(pipe_in[PIPE_WRITE], buf, read_len);
+                        written_len = write(pty_master, buf, read_len);
                         if (written_len < 0) {
                             perror("write");
                         }
-                    } else if ((events & EPOLLIN) && (fd == pipe_out[PIPE_READ])) {
-                        read_len = read(pipe_out[PIPE_READ], buf, sizeof(buf));
+                    } else if ((events & EPOLLIN) && (fd == pty_master)) {
+                        read_len = read(pty_master, buf, sizeof(buf));
                         if (read_len < 0) {
                             perror("read");
                         }
                         written_len = write(STDOUT_FILENO, buf, read_len);
-                        if (written_len < 0) {
-                            perror("write");
-                        }
-                    } else if ((events & EPOLLIN) && (fd == pipe_err[PIPE_READ])) {
-                        read_len = read(pipe_err[PIPE_READ], buf, sizeof(buf));
-                        if (read_len < 0) {
-                            perror("read");
-                        }
-                        written_len = write(STDERR_FILENO, buf, read_len);
                         if (written_len < 0) {
                             perror("write");
                         }
@@ -155,11 +158,11 @@ static int invoke(int argc, char **argv)
                     }
                 }
             } while (!is_exit);
-        } while (0);
 
-        close(pipe_in[PIPE_WRITE]);
-        close(pipe_out[PIPE_READ]);
-        close(pipe_err[PIPE_READ]);
+            kill(cpid, SIGTERM);
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_term);
+            close(pty_master);
+        } while (0);
     }
 
     return 0;

@@ -13,7 +13,7 @@
 #if NODEBUG != 1
 #define DEBUG(fmt, ...)                          \
     do {                                         \
-        fprintf(stderr, "D:%s:%d:%s$ " fmt "\n", \
+        fprintf(stderr, "D:%s:%d:%s$ " fmt "\r\n", \
                 __FILE__, __LINE__, __func__,    \
                 ##__VA_ARGS__);                  \
     } while (0)
