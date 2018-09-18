@@ -17,6 +17,7 @@
 #include <errno.h>
 
 #include "econ.h"
+#include "ascii.h"
 #include "debug.h"
 #include "utils.h"
 
@@ -99,7 +100,7 @@ int econ_prompt(const char *prompt, char **argv, size_t length)
                     }
                 } else {
                     switch (c) {
-                    case 033:
+                    case ESC:
                         getchar(); /* skip '[' */
                         c = getchar();
                         switch (c) {
@@ -135,7 +136,7 @@ int econ_prompt(const char *prompt, char **argv, size_t length)
                             break;
                         }
                         break;
-                    case 127: /* backspace */
+                    case DEL: /* backspace */
                         if (cursor == count) {
                             if (count > 0) {
                                 --count;

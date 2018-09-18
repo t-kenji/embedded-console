@@ -21,6 +21,8 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 
+#include "ascii.h"
+
 /**
  *  command usage.
  *
@@ -140,9 +142,18 @@ static int invoke(int argc, char **argv)
                         if (read_len < 0) {
                             perror("read");
                         }
-                        written_len = write(pty_master, buf, read_len);
-                        if (written_len < 0) {
-                            perror("write");
+                        switch (buf[0]) {
+                        case ETX:
+                            is_exit = true;
+                            putchar('\r');
+                            putchar('\n');
+                            break;
+                        default:
+                            written_len = write(pty_master, buf, read_len);
+                            if (written_len < 0) {
+                                perror("write");
+                            }
+                            break;
                         }
                     } else if ((events & EPOLLIN) && (fd == pty_master)) {
                         read_len = read(pty_master, buf, sizeof(buf));
