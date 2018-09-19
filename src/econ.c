@@ -34,16 +34,16 @@ static int parse_argument(char *buf, char **argv, size_t length)
     int count = 0;
     bool is_word = false;
 
-    for (int i = 0; buf[i] != '\0'; ++i) {
+    for (int i = 0; buf[i] != NUL; ++i) {
         int c = buf[i];
 
-        if ((c != ' ') && (c != '\t') && (c != '\n')) {
+        if ((c != SP) && (c != TAB) && (c != LF)) {
             if (!is_word) {
                 argv[count++] = &buf[i];
             }
             is_word = true;
         } else {
-            buf[i] = '\0';
+            buf[i] = NUL;
             if (is_word && (count >= length)) {
                 break;
             }
@@ -76,16 +76,16 @@ int econ_prompt(const char *prompt, char **argv, size_t length)
     do {
         int c = getchar();
         if ((0x00 <= c) && (c < 0xFF)) {
-            if (c == '\r') {
-                c = '\n';
+            if (c == CR) {
+                c = LF;
             }
-            if (c == '\n') {
-                buf[count] = '\0';
-                putchar('\r');
-                putchar('\n');
+            if (c == LF) {
+                buf[count] = NUL;
+                putchar(CR);
+                putchar(LF);
                 break;
             } else {
-                if ((0x20 <= c) && (c < 0x7F)) {
+                if ((SP <= c) && (c < DEL)) {
                     if (cursor == count) {
                         putchar(c);
                     } else {
@@ -141,7 +141,7 @@ int econ_prompt(const char *prompt, char **argv, size_t length)
                             if (count > 0) {
                                 --count;
                                 --cursor;
-                                buf[cursor] = '\0';
+                                buf[cursor] = NUL;
                                 printf("\033[1D\033[K");
                             }
                         } else {

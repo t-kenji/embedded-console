@@ -57,20 +57,7 @@ static int invoke(int argc, char **argv)
         close(pty_master);
 
         int pty_slave = open(pts_name, O_RDWR);
-#if 0
-        struct termios new_term = old_term;
-
-        new_term.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-        new_term.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-        new_term.c_cflag &= ~(CSIZE | PARENB);
-        new_term.c_cflag |= CS8;
-        new_term.c_oflag &= ~(OPOST);
-        new_term.c_cc[VMIN] = 1;
-        new_term.c_cc[VTIME] = 0;
-        tcsetattr(pty_slave, TCSAFLUSH, &new_term);
-#else
         tcsetattr(pty_slave, TCSAFLUSH, &old_term);
-#endif
         ioctl(pty_slave, TIOCSWINSZ, &old_size);
 
         if (dup2(pty_slave, STDIN_FILENO) < 0) {
@@ -145,8 +132,7 @@ static int invoke(int argc, char **argv)
                         switch (buf[0]) {
                         case ETX:
                             is_exit = true;
-                            putchar('\r');
-                            putchar('\n');
+                            printf("^C\r\n");
                             break;
                         default:
                             written_len = write(pty_master, buf, read_len);

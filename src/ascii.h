@@ -43,6 +43,7 @@ enum AsciiCode {
     GS  = 0x1D, /**< group separator. */
     RS  = 0x1E, /**< record separator. */
     US  = 0x1F, /**< unit separator. */
+    SP  = 0x20, /**< white space. */
     DEL = 0x7F, /**< delete. */
 };
 
