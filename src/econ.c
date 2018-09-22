@@ -126,7 +126,7 @@ int econ_prompt(const char *prompt, char **argv, size_t length)
                             }
                             break;
                         case 'D': /* left */
-                            if (--cursor <= 0) {
+                            if (--cursor < 0) {
                                 cursor = 0;
                             } else {
                                 printf("\033[1D");
