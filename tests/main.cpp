@@ -44,7 +44,9 @@ static int aaa(int argc, char **argv)
 static struct termios saved_term;
 static int cmd_exit(int argc, char **argv)
 {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved_term);
+    if (isatty(STDIN_FILENO)) {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved_term);
+    }
     exit(0);
 }
 
@@ -74,18 +76,20 @@ static struct econ_command test_cmds[] = {
  */
 int main(int argc, char **argv)
 {
-    struct termios new_term;
+    if (isatty(STDIN_FILENO)) {
+        tcgetattr(STDIN_FILENO, &saved_term);
 
-    tcgetattr(STDIN_FILENO, &saved_term);
-    new_term = saved_term;
-    new_term.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-    new_term.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    new_term.c_cflag &= ~(CSIZE | PARENB);
-    new_term.c_cflag |= CS8;
-    new_term.c_oflag &= ~(OPOST);
-    new_term.c_cc[VMIN] = 1;
-    new_term.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term);
+        struct termios new_term;
+        new_term = saved_term;
+        new_term.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        new_term.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+        new_term.c_cflag &= ~(CSIZE | PARENB);
+        new_term.c_cflag |= CS8;
+        new_term.c_oflag &= ~(OPOST);
+        new_term.c_cc[VMIN] = 1;
+        new_term.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term);
+    }
 
     do {
         char *cmd_args[24] = {0};

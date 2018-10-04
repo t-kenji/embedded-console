@@ -53,6 +53,17 @@ int econ_prompt(const char *prompt, char **argv, size_t length);
  */
 int econ_invoke(int argc, char **argv, struct econ_command *cmds);
 
+#define logger_debug(format, ...)                             \
+    do {                                                      \
+        extern FILE *logger;                                  \
+        if (logger == NULL) {                                 \
+            logger = fopen("/tmp/econ.log", "w");             \
+        }                                                     \
+        fprintf(logger, "%s:%d:%s " format "\n",              \
+                __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+        fflush(logger);                                       \
+    } while (0)
+
 #ifdef __cplusplus
 }
 #endif

@@ -14,12 +14,26 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 #include <errno.h>
+#include <sys/epoll.h>
 
 #include "econ.h"
 #include "ascii.h"
 #include "debug.h"
 #include "utils.h"
+
+FILE *logger = NULL;
+
+/**
+ *  stdin polling fd.
+ */
+int epfd = -1;
+
+/**
+ *  get length of array.
+ */
+#define lengthof(array) (sizeof(array)/sizeof(array[0]))
 
 /**
  *  parse arguments.
@@ -65,101 +79,139 @@ static int parse_argument(char *buf, char **argv, size_t length)
  */
 int econ_prompt(const char *prompt, char **argv, size_t length)
 {
+    bool has_eol = false;
     char buf[BUFSIZ] = {0};
-
     int count = 0,
         cursor = 0;
+
+    if (epfd < 0) {
+        int val = fcntl(STDIN_FILENO, F_GETFL, 0);
+        if ((val & O_NONBLOCK) == 0) {
+            fcntl(STDIN_FILENO, F_SETFL, val | O_NONBLOCK);
+        }
+
+        epfd = epoll_create1(0);
+        if (epfd < 0) {
+            perror("epoll_create1");
+            return -1;
+        }
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.fd = STDIN_FILENO;
+        if (epoll_ctl(epfd, EPOLL_CTL_ADD,ev.data.fd, &ev) != 0) {
+            perror("epoll_ctl");
+            close(epfd);
+            epfd = -1;
+            return -1;
+        }
+    }
 
     prompt = (prompt) ?: "econ>";
 
     printf("%s ", prompt);
+    fflush(stdout);
     do {
-        int c = getchar();
-        if ((0x00 <= c) && (c < 0xFF)) {
-            if (c == CR) {
-                c = LF;
-            }
-            if (c == LF) {
-                buf[count] = NUL;
-                putchar(CR);
-                putchar(LF);
-                break;
-            } else {
-                if ((SP <= c) && (c < DEL)) {
-                    if (cursor == count) {
-                        putchar(c);
-                    } else {
-                        for (int i = count; i > cursor; --i) {
-                            buf[i] = buf[i - 1];
+        static struct epoll_event events[10];
+        int nevs = epoll_wait(epfd, events, lengthof(events), -1);
+        if (nevs < 0) {
+            perror("epoll_wait");
+            break;
+        }
+        for (int i = 0; i < nevs; ++i) {
+            if ((events[i].events & EPOLLIN) && (events[i].data.fd == STDIN_FILENO)) {
+                int c;
+                while ((c = getchar()) != EOF) {
+                    if ((0x00 <= c) && (c < 0xFF)) {
+                        if (c == CR) {
+                            c = LF;
                         }
-                    }
-                    buf[cursor++] = c;
-                    ++count;
-                    if (cursor != count) {
-                        printf("\r%s %s\033[%dD", prompt, buf, count - cursor);
-                    }
-                } else {
-                    switch (c) {
-                    case ESC:
-                        getchar(); /* skip '[' */
-                        c = getchar();
-                        switch (c) {
-                        case '3': /* delete */
-                            getchar(); /* skip '~' */
-                            if (cursor < count) {
-                                for (int i = cursor; i < count; ++i) {
-                                    buf[i] = buf[i + 1];
-                                }
-                                --count;
-                                printf("\r%s %s\033[K\033[%dD", prompt, buf, count - cursor);
-                            }
-                            break;
-                        case 'A': /* up */
-                            break;
-                        case 'B': /* down */
-                            break;
-                        case 'C': /* right */
-                            if (++cursor > count) {
-                                cursor = count;
-                            } else {
-                                printf("\033[1C");
-                            }
-                            break;
-                        case 'D': /* left */
-                            if (--cursor < 0) {
-                                cursor = 0;
-                            } else {
-                                printf("\033[1D");
-                            }
-                            break;
-                        default:
-                            break;
-                        }
-                        break;
-                    case DEL: /* backspace */
-                        if (cursor == count) {
-                            if (count > 0) {
-                                --count;
-                                --cursor;
-                                buf[cursor] = NUL;
-                                printf("\033[1D\033[K");
-                            }
+                        if (c == LF) {
+                            buf[count] = NUL;
+                            putchar(CR);
+                            putchar(LF);
+                            has_eol = true;
                         } else {
-                            --cursor;
-                            for (int i = cursor; i < count; ++i) {
-                                buf[i] = buf[i + 1];
+                            if ((SP <= c) && (c < DEL)) {
+                                if (cursor == count) {
+                                    putchar(c);
+                                } else {
+                                    for (int i = count; i > cursor; --i) {
+                                        buf[i] = buf[i - 1];
+                                    }
+                                }
+                                buf[cursor++] = c;
+                                ++count;
+                                if (cursor != count) {
+                                    printf("\r%s %s\033[%dD", prompt, buf, count - cursor);
+                                }
+                            } else {
+                                switch (c) {
+                                case ESC:
+                                    getchar(); /* skip '[' */
+                                    c = getchar();
+                                    switch (c) {
+                                    case '3': /* delete */
+                                        getchar(); /* skip '~' */
+                                        if (cursor < count) {
+                                            for (int i = cursor; i < count; ++i) {
+                                                buf[i] = buf[i + 1];
+                                            }
+                                            --count;
+                                            printf("\r%s %s\033[K\033[%dD", prompt, buf, count - cursor);
+                                        }
+                                        break;
+                                    case 'A': /* up */
+                                        break;
+                                    case 'B': /* down */
+                                        break;
+                                    case 'C': /* right */
+                                        if (++cursor > count) {
+                                            cursor = count;
+                                        } else {
+                                            printf("\033[1C");
+                                        }
+                                        break;
+                                    case 'D': /* left */
+                                        if (--cursor < 0) {
+                                            cursor = 0;
+                                        } else {
+                                            printf("\033[1D");
+                                        }
+                                        break;
+                                    default:
+                                        break;
+                                    }
+                                    break;
+                                case DEL: /* backspace */
+                                    if (cursor == count) {
+                                        if (count > 0) {
+                                            --count;
+                                            --cursor;
+                                            buf[cursor] = NUL;
+                                            printf("\033[1D\033[K");
+                                        }
+                                    } else {
+                                        --cursor;
+                                        for (int i = cursor; i < count; ++i) {
+                                            buf[i] = buf[i + 1];
+                                        }
+                                        --count;
+                                        printf("\r%s %s\033[K\033[%dD", prompt, buf, count - cursor);
+                                    }
+                                    break;
+                                default:
+                                    break;
+                                }
                             }
-                            --count;
-                            printf("\r%s %s\033[K\033[%dD", prompt, buf, count - cursor);
                         }
-                        break;
-                    default:
-                        break;
                     }
                 }
+            } else {
+                DEBUG("events: %x, fd: %d", events[i].events, events[i].data.fd);
+                has_eol = true;
             }
         }
-    } while (true);
+    } while (!has_eol);
 
     return parse_argument(buf, argv, length);
 }
